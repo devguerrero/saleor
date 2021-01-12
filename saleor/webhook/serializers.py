@@ -1,5 +1,9 @@
 from typing import TYPE_CHECKING, List
 
+from django.db.models import Prefetch
+
+from ..product.models import ProductVariantChannelListing
+
 if TYPE_CHECKING:
     # pylint: disable=unused-import
     from ..checkout.models import Checkout
@@ -8,11 +12,19 @@ if TYPE_CHECKING:
 def serialize_checkout_lines(checkout: "Checkout") -> List[dict]:
     data = []
     channel = checkout.channel
-    for line in checkout.lines.select_related("variant__product").all():
+    prefetch = Prefetch(
+        "variant__channel_listings",
+        queryset=ProductVariantChannelListing.objects.filter(channel_id=channel.id),
+        to_attr="listings",
+    )
+    for line in checkout.lines.select_related("variant__product").prefetch_related(prefetch).all():
         variant = line.variant
-        channel_listing = variant.channel_listings.get(channel=channel)
+
+        if not variant.listings:
+            continue
+
+        channel_listing = variant.listings[0]
         product = variant.product
-        # TODO: optimize getting arguments for get_price
         base_price = variant.get_price(product, [], channel, channel_listing)
         data.append(
             {
